@@ -1,0 +1,16 @@
+import { defineSettings } from "@getpaseo/plugin";
+import { z } from "zod";
+
+export const mascotSettings = defineSettings({
+  id: "mascot",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    mascot: z.string().default("fox"),
+    /** Free-dragged viewport position; null keeps the mascot perched on the composer. */
+    position: z
+      .object({ x: z.number(), y: z.number() })
+      .nullable()
+      .default(null),
+  }),
+});
