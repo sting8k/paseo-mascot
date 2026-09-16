@@ -112,7 +112,7 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
   }, []);
 
   // Free dragging: the mascot can live anywhere in the window, and its resting place
-  // is saved. A plain click still reaches the host button and opens the picker.
+  // is saved. Left click pokes; right click opens the host picker.
   const position = settings.status === "ready" ? settings.values.position : null;
   useEffect(() => {
     applyFixedPosition(anchorRef.current, position ? clampToViewport(position, face) : null);
@@ -121,10 +121,12 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const [gesture, setGesture] = useState<MascotGesture | null>(null);
+  const [pokes, setPokes] = useState(0);
   useEffect(() => {
     let clear: ReturnType<typeof setTimeout> | undefined;
     const stop = makeDraggable(slotRef.current, anchorRef.current, {
       onStart: () => setGesture("dragging"),
+      onTap: () => setPokes((count) => count + 1),
       onDrop: (dropped, flung) => {
         setGesture(flung ? "flung" : "dropped");
         clear = setTimeout(() => setGesture(null), GESTURE_CLEAR_MS);
@@ -179,7 +181,7 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
       }}
     >
       <Animated.View style={{ transform: [{ translateY: Animated.add(float, -lift) }] }}>
-        <KoboyoMascot id={id} size={face} mood={mood} gesture={gesture} onSleepChange={setNapping} />
+        <KoboyoMascot id={id} size={face} mood={mood} gesture={gesture} pokes={pokes} onSleepChange={setNapping} />
       </Animated.View>
     </View>
   );

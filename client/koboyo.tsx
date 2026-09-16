@@ -1,4 +1,4 @@
-import { Animated, Image, Pressable, View } from "react-native";
+import { Animated, Image, View } from "react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { measureCenterInto, trackCursor, trackTyping, viewportHeight } from "./web";
 import type { Rect } from "./web";
@@ -71,6 +71,16 @@ const DROP_MS = 900;
 const MOOD_FLASH_MS = 1400;
 const GLANCE_EVERY_MS = 4500;
 const GLANCE_MS = 1100;
+// A pet notices a hand that darts or moves somewhere new, not one that creeps; and
+// it loses interest after a moment and looks ahead again.
+const NOTICE_SPEED_PX_PER_MS = 1.2;
+const NOTICE_DISTANCE_PX = 90;
+const INTEREST_MS = 2500;
+// Unprompted, just to be unpredictable.
+const WHIM_MIN_MS = 20_000;
+const WHIM_MAX_MS = 50_000;
+const WHIM_MS = 900;
+const WHIMS: readonly Reaction[] = ["sparkle", "wink", "delighted", "heart", "surprised"];
 const BLINK_MS = 160;
 const BLINK_EVERY_MS = 3600;
 
@@ -80,7 +90,8 @@ const BLINK_EVERY_MS = 3600;
 const AMBIENT = 0;
 const MOOD = 1;
 const DIRECT = 2;
-type Showing = { priority: number; timer: ReturnType<typeof setTimeout> };
+/** `holdFrom`: once past it, any user activity ends the reaction early. */
+type Showing = { priority: number; timer: ReturnType<typeof setTimeout>; holdFrom?: number };
 
 // Their catalogue, in site order.
 export const MASCOT_GROUPS: readonly { title: string; ids: readonly string[] }[] = [
@@ -165,10 +176,13 @@ export function mascotLabel(id: string): string {
     .join(" ");
 }
 
+// No sad frame on the sheet; dizzy reads as "that went wrong" better than a sleepy
+// face that looks like a nap.
 const MOOD_REACTION: Partial<Record<MascotMood, Reaction>> = {
+  focus: "sparkle",
   alert: "surprised",
   happy: "delighted",
-  sad: "sleepy",
+  sad: "dizzy",
 };
 
 /** The point of `rect` closest to `from` — what to look at when facing a wide box. */
@@ -218,12 +232,15 @@ export function KoboyoMascot({
   size,
   mood = "neutral",
   gesture = null,
+  pokes = 0,
   onSleepChange,
 }: {
   id: string;
   size: number;
   mood?: MascotMood;
   gesture?: MascotGesture | null;
+  /** Bumped by the parent for every tap; the mascot owns what a poke does. */
+  pokes?: number;
   onSleepChange?: (asleep: boolean) => void;
 }) {
   const [direction, setDirection] = useState<Direction>("center");
@@ -240,17 +257,20 @@ export function KoboyoMascot({
   const squash = useRef(new Animated.Value(0)).current;
   const rootRef = useRef<View>(null);
   const centerRef = useRef({ x: 0, y: 0 });
-  const pokes = useRef({ count: 0, at: 0 });
+  const tally = useRef({ count: 0, at: 0 });
   // Read by the cursor tracker and the idle ticker, which are both set up once.
   const idle = useRef({ since: Date.now(), hovered: false, stared: false, asleep: false });
+  // Where the cursor was last noticed, and until when it holds the mascot's interest.
+  const noticed = useRef({ x: 0, y: 0, at: 0, until: 0 });
 
   /** Show `reaction` for `ms` unless something more important is still on screen. Returns the slot it took, if any. */
-  const show = useCallback((reaction: Reaction, ms: number, priority: number): Showing | null => {
+  const show = useCallback((reaction: Reaction, ms: number, priority: number, holdFrom?: number): Showing | null => {
     const current = showing.current;
     if (current && current.priority > priority) return null;
     if (current) clearTimeout(current.timer);
     const slot: Showing = {
       priority,
+      holdFrom,
       timer: setTimeout(() => {
         if (showing.current !== slot) return;
         showing.current = null;
@@ -262,13 +282,21 @@ export function KoboyoMascot({
     return slot;
   }, []);
 
+  // `byUser`: cursor or keyboard activity, as opposed to something happening to the
+  // mascot. Only that ends a held reaction (and startles a sleeper).
   const wake = useCallback(
-    (surprised: boolean) => {
+    (byUser: boolean) => {
       idle.current.since = Date.now();
+      const held = showing.current;
+      if (byUser && held?.holdFrom !== undefined && Date.now() >= held.holdFrom) {
+        clearTimeout(held.timer);
+        showing.current = null;
+        setReactionFlash(null);
+      }
       if (!idle.current.asleep) return;
       idle.current.asleep = false;
       setAsleep(false);
-      if (surprised) show("surprised", WAKE_MS, DIRECT);
+      if (byUser) show("surprised", WAKE_MS, DIRECT);
     },
     [show],
   );
@@ -283,6 +311,20 @@ export function KoboyoMascot({
       // A hand that merely trembles over the mascot is still one stare, not a new one.
       if (!idle.current.hovered) idle.current.stared = false;
       wake(true);
+      const seen = noticed.current;
+      const now = Date.now();
+      const moved = Math.hypot(x - seen.x, y - seen.y);
+      const speed = seen.at ? moved / Math.max(1, now - seen.at) : 0;
+      seen.at = now;
+      // Hovering is up close and always noticed; otherwise only a dart or a real
+      // relocation earns a look, and once it has one, it keeps it for a moment.
+      const notable = next === "center" || speed >= NOTICE_SPEED_PX_PER_MS || moved >= NOTICE_DISTANCE_PX;
+      if (!notable && now >= seen.until) return;
+      if (notable) {
+        seen.x = x;
+        seen.y = y;
+        seen.until = now + INTEREST_MS;
+      }
       setDirection(next);
     });
     return () => tracker.dispose();
@@ -315,14 +357,15 @@ export function KoboyoMascot({
     [],
   );
 
-  // Naps and stares share one ticker: both are just "the cursor stopped moving".
-  // Only the nap waits for the agent to be idle too — being stared at is a direct
-  // interaction, like a poke, so it lands even mid-run.
+  // Naps, stares and boredom share one ticker: all are just "the cursor stopped".
+  // A running agent does not keep the mascot up — the user being away is what matters.
   useEffect(() => {
     const interval = setInterval(() => {
       if (gesture) return;
-      const still = Date.now() - idle.current.since;
-      if (still >= SLEEP_AFTER_MS && mood !== "focus") {
+      const now = Date.now();
+      if (now >= noticed.current.until) setDirection("center");
+      const still = now - idle.current.since;
+      if (still >= SLEEP_AFTER_MS) {
         if (idle.current.asleep) return;
         idle.current.asleep = true;
         setAsleep(true);
@@ -334,18 +377,22 @@ export function KoboyoMascot({
       }
     }, IDLE_TICK_MS);
     return () => clearInterval(interval);
-  }, [mood, gesture, show]);
+  }, [gesture, show]);
 
   useEffect(() => onSleepChange?.(asleep), [asleep, onSleepChange]);
 
   // A workspace mood change flashes its reaction briefly, then gaze resumes —
-  // holding the reaction forever would freeze the sprite on one frame.
+  // holding the reaction forever would freeze the sprite on one frame. Finishing a
+  // run is the exception: stay pleased until the user comes back (or the nap timer
+  // would have fired anyway).
   useEffect(() => {
     if (mood === lastMood.current) return;
     lastMood.current = mood;
     wake(false);
     const reaction = MOOD_REACTION[mood];
-    if (reaction) show(reaction, MOOD_FLASH_MS, MOOD);
+    if (!reaction) return;
+    if (mood === "happy") show(reaction, SLEEP_AFTER_MS, MOOD, Date.now() + MOOD_FLASH_MS);
+    else show(reaction, MOOD_FLASH_MS, MOOD);
   }, [mood, show, wake]);
 
   // While the agent works, glance at the transcript now and then instead of staring
@@ -379,6 +426,20 @@ export function KoboyoMascot({
     if (gesture) wake(false);
   }, [gesture, show, wake]);
 
+  // Now and then, a reaction for no reason at all. Lowest priority, like a blink.
+  useEffect(() => {
+    if (asleep) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(() => {
+        show(WHIMS[Math.floor(Math.random() * WHIMS.length)], WHIM_MS, AMBIENT);
+        schedule();
+      }, WHIM_MIN_MS + Math.random() * (WHIM_MAX_MS - WHIM_MIN_MS));
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [asleep, show]);
+
   // Idle blinking so they feel alive even when the cursor is away — but not mid-nap,
   // where an open-eyed blink would break the illusion. Lowest priority: it yields to
   // everything else, and everything else is allowed to cut it short.
@@ -392,7 +453,7 @@ export function KoboyoMascot({
     wake(false);
     if (pokeTimer.current) clearTimeout(pokeTimer.current);
     const now = Date.now();
-    const state = pokes.current;
+    const state = tally.current;
     state.count = now - state.at < RAPID_WINDOW_MS ? state.count + 1 : 1;
     state.at = now;
     if (state.count >= DIZZY_THRESHOLD) {
@@ -415,6 +476,13 @@ export function KoboyoMascot({
     ]).start();
   }, [squash, wake, show]);
 
+  const seenPokes = useRef(pokes);
+  useEffect(() => {
+    if (pokes === seenPokes.current) return;
+    seenPokes.current = pokes;
+    poke();
+  }, [pokes, poke]);
+
   // Priority: what is happening to the mascot right now beats what it feels, which
   // beats being asleep.
   const reaction: Reaction | null =
@@ -430,13 +498,7 @@ export function KoboyoMascot({
 
   return (
     <View ref={rootRef}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Poke ${mascotLabel(id)}`}
-        onPress={poke}
-        hitSlop={4}
-      >
-        <Animated.View
+      <Animated.View
           style={{
             width: size,
             height: size,
@@ -458,8 +520,7 @@ export function KoboyoMascot({
           >
             <Sprite id={id} kind="reactions" frame={reactionFrame} size={size} />
           </View>
-        </Animated.View>
-      </Pressable>
+      </Animated.View>
     </View>
   );
 }

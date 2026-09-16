@@ -16,6 +16,7 @@ interface DragNode {
   removeEventListener(type: string, listener: (event: PointerLike) => void, options?: unknown): void;
   setPointerCapture?(pointerId: number): void;
   releasePointerCapture?(pointerId: number): void;
+  click?(): void;
 }
 
 interface PointerLike {
@@ -37,16 +38,18 @@ declare const window: {
 };
 
 const DRAG_THRESHOLD_PX = 4;
-/** px/ms at release that counts as a throw rather than a placement. */
-const FLING_SPEED = 1.2;
+/** Carried at least this far in one go, the mascot lands dizzy rather than merely embarrassed. */
+const FLING_DISTANCE_PX = 240;
 /** Dropped this close to the composer row, the mascot climbs back onto its perch. */
 const SNAP_HOME_PX = 48;
 
 export interface DragHandlers {
   /** The press turned into a real drag. */
   onStart?(): void;
-  /** Resting place — `null` means back on the composer perch — plus whether it was thrown. */
+  /** Resting place — `null` means back on the composer perch — plus whether it was thrown far. */
   onDrop(position: Point | null, flung: boolean): void;
+  /** A plain left click that never became a drag. */
+  onTap?(): void;
 }
 
 /** Keep a dragged mascot fully inside the viewport, even after a window resize. */
@@ -129,9 +132,9 @@ export function applyFixedPosition(node: unknown, position: Point | null): void 
 }
 
 /**
- * Drag the mascot anywhere in the window. A press that never passes the threshold is
- * left alone so it still reaches the host button (which opens the picker); a real drag
- * swallows the click that would otherwise follow.
+ * Drag the mascot anywhere in the window. The host button underneath opens the
+ * picker on click, so every left click is swallowed here and reported as a tap or a
+ * drop instead; right click is what opens the picker now.
  */
 export function makeDraggable(handle: unknown, moved: unknown, handlers: DragHandlers): () => void {
   if (Platform.OS !== "web") return () => {};
@@ -141,8 +144,6 @@ export function makeDraggable(handle: unknown, moved: unknown, handlers: DragHan
 
   let origin: { pointer: Point; node: Point } | null = null;
   let dragging = false;
-  let last = { x: 0, y: 0, at: 0 };
-  let speed = 0;
 
   const swallowClick = (event: PointerLike) => {
     event.preventDefault();
@@ -171,14 +172,7 @@ export function makeDraggable(handle: unknown, moved: unknown, handlers: DragHan
     if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     if (!dragging) {
       dragging = true;
-      last = { x: event.clientX, y: event.clientY, at: Date.now() };
       handlers.onStart?.();
-    }
-    const now = Date.now();
-    const elapsed = now - last.at;
-    if (elapsed > 0) {
-      speed = Math.hypot(event.clientX - last.x, event.clientY - last.y) / elapsed;
-      last = { x: event.clientX, y: event.clientY, at: now };
     }
     event.preventDefault();
     const rect = target.getBoundingClientRect();
@@ -190,24 +184,36 @@ export function makeDraggable(handle: unknown, moved: unknown, handlers: DragHan
 
   const onPointerUp = () => {
     if (!origin) return;
+    const from = origin.node;
     const wasDragging = dragging;
     origin = null;
     dragging = false;
-    if (!wasDragging) return;
-    // Cancel the click this drag would produce, then report the resting place.
+    // The click that follows would open the host picker; it is ours either way.
     el.addEventListener("click", swallowClick, { capture: true, once: true });
+    if (!wasDragging) {
+      handlers.onTap?.();
+      return;
+    }
     const rect = target.getBoundingClientRect();
-    handlers.onDrop(droppedHome(target, rect) ? null : { x: rect.left, y: rect.top }, speed >= FLING_SPEED);
-    speed = 0;
+    const distance = Math.hypot(rect.left - from.x, rect.top - from.y);
+    handlers.onDrop(droppedHome(target, rect) ? null : { x: rect.left, y: rect.top }, distance >= FLING_DISTANCE_PX);
+  };
+
+  const onContextMenu = (event: PointerLike) => {
+    event.preventDefault();
+    event.stopPropagation();
+    target.click?.();
   };
 
   el.style.cursor = "grab";
   el.addEventListener("pointerdown", onPointerDown);
+  el.addEventListener("contextmenu", onContextMenu);
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
   return () => {
     el.style.cursor = "";
     el.removeEventListener("pointerdown", onPointerDown);
+    el.removeEventListener("contextmenu", onContextMenu);
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
   };
