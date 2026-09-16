@@ -11,6 +11,10 @@ chat box, watches what you're doing, naps when you leave, and reacts when you po
 Desktop only — it works by perching on the host's DOM, so there is nothing to perch on
 in the mobile app.
 
+<p align="center">
+  <img src="assets/picker.png" width="395" alt="the mascot picker">
+</p>
+
 ## Install
 
 ```bash
