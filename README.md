@@ -18,6 +18,8 @@ Desktop only — it perches on the host's DOM, and the mobile app has none.
 |:---:|:---:|
 | ![Perched on the composer](assets/perch.png) | ![Asleep](assets/asleep.png) |
 | Perched on the chat box, watching the cursor | Left alone for 10s — asleep until you're back |
+| ![Poked](assets/poke.png) | ![Dizzy](assets/dizzy.png) |
+| Left click to poke | Four fast pokes, or a long throw |
 | ![Picker](assets/picker.png) | |
 | Right click: 58 characters and a name tag | |
 
