@@ -6,8 +6,8 @@ import { useSettings, useWorkspace } from "@getpaseo/plugin/client";
 import { mascotSettings } from "../shared/mascot-settings";
 import { KoboyoMascot, MascotThumb, MASCOT_GROUPS, mascotLabel, DEFAULT_MASCOT } from "./koboyo";
 import type { MascotGesture } from "./koboyo";
-import { PILL_TITLE } from "../shared/mascot-settings";
-import { Animated, Easing, Pressable, ScrollView, Text, View } from "react-native";
+import { NAME_MAX_LENGTH, PILL_TITLE } from "../shared/mascot-settings";
+import { Animated, Easing, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useEffect, useRef, useState } from "react";
 import { perchOnHostButton, suppressHostTooltip } from "./web";
 import { applyFixedPosition, clampToViewport, makeDraggable } from "./drag";
@@ -28,60 +28,101 @@ export function MascotPickerContent({ theme, close }: PluginButtonContentProps) 
   // once the choice is safe: while settings are still loading there is no revision to
   // save against, and closing would drop the pick silently. The save itself survives
   // the unmount (the host runs it as a mutation and writes the shared query cache).
+  //
+  // The name is typed freely and travels with whatever is saved next — a pick, Enter,
+  // or the popover closing. One save per action: the host rejects a second save
+  // against the same revision, so a name save racing a pick would drop the pick.
+  const savedName = settings.status === "ready" ? settings.values.name : "";
+  const [name, setName] = useState(savedName);
+  useEffect(() => setName(savedName), [savedName]);
+  const latest = useRef({ settings, name });
+  latest.current = { settings, name };
+  const persist = (patch: { mascot?: string }) => {
+    const { settings: current, name: typed } = latest.current;
+    if (current.status !== "ready") return;
+    const next = { ...current.values, ...patch, name: typed.trim().slice(0, NAME_MAX_LENGTH) };
+    if (next.mascot === current.values.mascot && next.name === current.values.name) return;
+    latest.current = { settings: { ...current, values: next }, name: next.name };
+    void current.save(next, current.revision);
+  };
   const select = (next: string) => {
     if (settings.status !== "ready") return;
-    if (next !== settings.values.mascot) {
-      void settings.save({ ...settings.values, mascot: next }, settings.revision);
-    }
+    persist({ mascot: next });
     close();
   };
-  const groups = MASCOT_GROUPS;
+  useEffect(() => () => persist({}), []);
   return (
     <View style={{ width: 300 }}>
-      <Text style={{ fontSize: 13, color: theme.colors.foreground, marginBottom: 4 }}>
+      <Text style={{ fontSize: 13, color: theme.colors.foreground, marginBottom: 8 }}>
         Choose a mascot
       </Text>
-      <ScrollView style={{ maxHeight: 380 }}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-          {groups.map((group) => (
-            <View key={group.title} style={{ width: "100%" }}>
-              <Text style={{ marginTop: 10, marginBottom: 4, fontSize: 11, color: theme.colors.foregroundMuted }}>
-                {group.title}
-              </Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-                {group.ids.map((mascotId) => (
-                  <Pressable
-                    key={mascotId}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Choose ${mascotLabel(mascotId)}`}
-                    onPress={() => select(mascotId)}
-                    hitSlop={2}
+      <TextInput
+        accessibilityLabel="Mascot name"
+        value={name}
+        onChangeText={setName}
+        onSubmitEditing={() => persist({})}
+        placeholder={`Name your ${mascotLabel(id).toLowerCase()}`}
+        placeholderTextColor={theme.colors.foregroundMuted}
+        maxLength={NAME_MAX_LENGTH}
+        autoCorrect={false}
+        style={{
+          fontSize: 12,
+          color: theme.colors.foreground,
+          backgroundColor: theme.colors.surface1,
+          borderColor: theme.colors.border,
+          borderWidth: 1,
+          borderRadius: 8,
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+        }}
+      />
+      <ScrollView style={{ maxHeight: 380 }} contentContainerStyle={{ paddingBottom: 6 }}>
+        {MASCOT_GROUPS.map((group, index) => (
+          <View key={group.title}>
+            <Text
+              style={{
+                marginTop: index === 0 ? 8 : 12,
+                marginBottom: 4,
+                fontSize: 11,
+                color: theme.colors.foregroundMuted,
+              }}
+            >
+              {group.title}
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+              {group.ids.map((mascotId) => (
+                <Pressable
+                  key={mascotId}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Choose ${mascotLabel(mascotId)}`}
+                  onPress={() => select(mascotId)}
+                  hitSlop={2}
+                  style={{
+                    width: "25%",
+                    alignItems: "center",
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                    backgroundColor: id === mascotId ? theme.colors.surface2 : "transparent",
+                  }}
+                >
+                  <View style={{ height: 44, justifyContent: "center", marginBottom: 6 }}>
+                    <MascotThumb id={mascotId} size={44} />
+                  </View>
+                  <Text
+                    numberOfLines={1}
                     style={{
-                      width: "23%",
-                      alignItems: "center",
-                      paddingVertical: 8,
-                      borderRadius: 10,
-                      backgroundColor: id === mascotId ? theme.colors.surface2 : "transparent",
+                      fontSize: 10,
+                      textAlign: "center",
+                      color: id === mascotId ? theme.colors.foreground : theme.colors.foregroundMuted,
                     }}
                   >
-                    <View style={{ height: 44, justifyContent: "center", marginBottom: 6 }}>
-                      <MascotThumb id={mascotId} size={44} />
-                    </View>
-                    <Text
-                      style={{
-                        fontSize: 10,
-                        textAlign: "center",
-                        color: id === mascotId ? theme.colors.foreground : theme.colors.foregroundMuted,
-                      }}
-                    >
-                      {mascotLabel(mascotId)}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+                    {mascotLabel(mascotId)}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
-          ))}
-        </View>
+          </View>
+        ))}
       </ScrollView>
     </View>
   );
@@ -89,8 +130,9 @@ export function MascotPickerContent({ theme, close }: PluginButtonContentProps) 
 
 /** Composer-pill icon: the mascot perches on the pill, spilling out of the host's icon box. */
 export function MascotFaceIcon(props: PluginButtonIconProps) {
-  const { size, workspaceId } = props;
+  const { size, workspaceId, theme } = props;
   const { id, settings } = useSelectedMascot();
+  const name = settings.status === "ready" ? settings.values.name : "";
   const status = useWorkspace(workspaceId, (workspace) => workspace.status);
   const mood = (status && MOOD_BY_STATUS[status]) || "neutral";
   const slotRef = useRef<View>(null);
@@ -182,6 +224,34 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
     >
       <Animated.View style={{ transform: [{ translateY: Animated.add(float, -lift) }] }}>
         <KoboyoMascot id={id} size={face} mood={mood} gesture={gesture} pokes={pokes} onSleepChange={setNapping} />
+        {name ? (
+          // A wrapper wider than the face, so the tag centres under it. (RN-web caps a
+          // single-line Text at its parent's width, so the Text cannot be the wide one.)
+          <View
+            pointerEvents="none"
+            style={{ position: "absolute", top: face * NAME_TOP, left: -face, width: face * 3, alignItems: "center" }}
+          >
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: face * NAME_SCALE,
+                fontFamily: NAME_FONT,
+                fontWeight: "600",
+                letterSpacing: 0.3,
+                color: theme.colors.foreground,
+                backgroundColor: theme.colors.surface2,
+                borderColor: theme.colors.border,
+                borderWidth: 1,
+                borderRadius: 999,
+                paddingHorizontal: 7,
+                paddingVertical: 1,
+                overflow: "hidden",
+              }}
+            >
+              {name}
+            </Text>
+          </View>
+        ) : null}
       </Animated.View>
     </View>
   );
@@ -192,6 +262,13 @@ const PILL_FACE_SCALE = 6; // rendered face size (~84px)
 const PILL_LIFT = 0.12; // how far above the slot the mascot sits
 const PILL_SLOT_WIDTH = 0.78; // horizontal room the mascot reserves on the row
 const PILL_SLOT_HEIGHT = 0.45; // hit area height, kept under the composer row height
+const NAME_TOP = 0.8; // the name tag hangs from the feet, riding the composer's top edge
+const NAME_SCALE = 0.12; // ~10px at the default face size
+// A rounded face for a pet's name tag; every entry is a stock font somewhere.
+const NAME_FONT = Platform.select({
+  web: '"Arial Rounded MT Bold", "SF Pro Rounded", Nunito, "Varela Round", system-ui, sans-serif',
+  default: undefined,
+});
 const BOB_MS = 1500;
 const NAP_BOB_MS = 3200;
 /** How long a drop reaction owns the sprite before normal gaze resumes. */

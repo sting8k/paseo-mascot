@@ -169,11 +169,17 @@ export const MASCOT_GROUPS: readonly { title: string; ids: readonly string[] }[]
   },
 ];
 
+// Ids that title-casing gets wrong.
+const LABELS: Record<string, string> = { redpanda: "Red Panda", crt: "CRT", tv: "TV" };
+
 export function mascotLabel(id: string): string {
-  return id
-    .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  return (
+    LABELS[id] ??
+    id
+      .split("-")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ")
+  );
 }
 
 // No sad frame on the sheet; dizzy reads as "that went wrong" better than a sleepy
