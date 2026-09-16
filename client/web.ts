@@ -229,8 +229,10 @@ export function perchOnHostButton(node: unknown): { button: unknown; restore: ()
 }
 
 interface ObservedNode {
-  style?: { setProperty(property: string, value: string, priority?: string): void };
+  style?: { setProperty(property: string, value: string, priority?: string): void; removeProperty(property: string): void };
   textContent: string | null;
+  parentElement: unknown;
+  firstElementChild: ObservedNode | null;
 }
 
 declare class MutationObserver {
@@ -247,16 +249,24 @@ declare class MutationObserver {
  */
 export function suppressHostTooltip(title: string): () => void {
   if (Platform.OS !== "web") return () => {};
+  const hidden = new Set<ObservedNode>();
   const observer = new MutationObserver((records) => {
     for (const record of records) {
       for (let index = 0; index < record.addedNodes.length; index += 1) {
-        const node = record.addedNodes.item(index);
-        if (node?.style && node.textContent?.trim() === title) {
-          node.style.setProperty("display", "none", "important");
-        }
+        let node = record.addedNodes.item(index);
+        if (!node?.style || node.textContent?.trim() !== title) continue;
+        // The first tooltip arrives inside a freshly created portal container at body
+        // level, which the host later reuses for menus. Hide the bubble, never the container.
+        if (node.parentElement === document.body) node = node.firstElementChild;
+        if (!node?.style) continue;
+        node.style.setProperty("display", "none", "important");
+        hidden.add(node);
       }
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
-  return () => observer.disconnect();
+  return () => {
+    observer.disconnect();
+    hidden.forEach((node) => node.style?.removeProperty("display"));
+  };
 }
