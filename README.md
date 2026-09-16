@@ -10,15 +10,10 @@ in the mobile app.
 ## Install
 
 ```bash
-paseo plugin install https://github.com/sting8k/paseo-mascot
+paseo plugin add sting8k/paseo-mascot
 ```
 
-or from a local checkout:
-
-```bash
-git clone https://github.com/sting8k/paseo-mascot
-paseo plugin install ./paseo-mascot
-```
+Later, `paseo plugin update paseo-mascot` pulls new versions.
 
 Open Command Center and run **Mascot: add a mascot to this composer**. Existing
 composers get one on next reload.
