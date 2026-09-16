@@ -21,11 +21,18 @@ function useSelectedMascot(): { id: string; settings: ReturnType<typeof useSetti
 }
 
 /** Picker popover over the koboyo catalogue. */
-export function MascotPickerContent({ theme }: PluginButtonContentProps) {
+export function MascotPickerContent({ theme, close }: PluginButtonContentProps) {
   const { id, settings } = useSelectedMascot();
+  // Picking is the whole point of the popover, so it closes on any choice — but only
+  // once the choice is safe: while settings are still loading there is no revision to
+  // save against, and closing would drop the pick silently. The save itself survives
+  // the unmount (the host runs it as a mutation and writes the shared query cache).
   const select = (next: string) => {
-    if (settings.status !== "ready" || next === settings.values.mascot) return;
-    void settings.save({ ...settings.values, mascot: next }, settings.revision);
+    if (settings.status !== "ready") return;
+    if (next !== settings.values.mascot) {
+      void settings.save({ ...settings.values, mascot: next }, settings.revision);
+    }
+    close();
   };
   const groups = MASCOT_GROUPS;
   return (
