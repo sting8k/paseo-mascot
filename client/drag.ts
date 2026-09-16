@@ -37,6 +37,15 @@ declare const window: {
 };
 
 const DRAG_THRESHOLD_PX = 4;
+/** px/ms at release that counts as a throw rather than a placement. */
+const FLING_SPEED = 1.2;
+
+export interface DragHandlers {
+  /** The press turned into a real drag. */
+  onStart?(): void;
+  /** Resting place, plus whether it got there by being thrown. */
+  onDrop(position: Point, flung: boolean): void;
+}
 
 /** Keep a dragged mascot fully inside the viewport, even after a window resize. */
 export function clampToViewport(position: Point, size: number): Point {
@@ -95,11 +104,7 @@ export function applyFixedPosition(node: unknown, position: Point | null): void 
  * left alone so it still reaches the host button (which opens the picker); a real drag
  * swallows the click that would otherwise follow.
  */
-export function makeDraggable(
-  handle: unknown,
-  moved: unknown,
-  onDrop: (position: Point) => void,
-): () => void {
+export function makeDraggable(handle: unknown, moved: unknown, handlers: DragHandlers): () => void {
   if (Platform.OS !== "web") return () => {};
   const el = handle as DragNode | null;
   const target = (moved as DragNode | null) ?? el;
@@ -107,6 +112,8 @@ export function makeDraggable(
 
   let origin: { pointer: Point; node: Point } | null = null;
   let dragging = false;
+  let last = { x: 0, y: 0, at: 0 };
+  let speed = 0;
 
   const swallowClick = (event: PointerLike) => {
     event.preventDefault();
@@ -133,7 +140,17 @@ export function makeDraggable(
     const dx = event.clientX - origin.pointer.x;
     const dy = event.clientY - origin.pointer.y;
     if (!dragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-    dragging = true;
+    if (!dragging) {
+      dragging = true;
+      last = { x: event.clientX, y: event.clientY, at: Date.now() };
+      handlers.onStart?.();
+    }
+    const now = Date.now();
+    const elapsed = now - last.at;
+    if (elapsed > 0) {
+      speed = Math.hypot(event.clientX - last.x, event.clientY - last.y) / elapsed;
+      last = { x: event.clientX, y: event.clientY, at: now };
+    }
     event.preventDefault();
     const rect = target.getBoundingClientRect();
     applyFixedPosition(
@@ -151,7 +168,8 @@ export function makeDraggable(
     // Cancel the click this drag would produce, then report the resting place.
     el.addEventListener("click", swallowClick, { capture: true, once: true });
     const rect = target.getBoundingClientRect();
-    onDrop({ x: rect.left, y: rect.top });
+    handlers.onDrop({ x: rect.left, y: rect.top }, speed >= FLING_SPEED);
+    speed = 0;
   };
 
   el.style.cursor = "grab";

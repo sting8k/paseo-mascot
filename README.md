@@ -63,6 +63,26 @@ Three host details the perch has to work around:
   root, so the host's click handling and the popover anchor keep working — because the
   composer's stacking context would otherwise paint over it.
 
+## Reactions
+
+The two sprite sheets give nine gaze frames and nine reaction frames. Gaze follows the
+cursor; everything else is a short flash that hands the sprite back to the gaze, because
+a reaction held forever just freezes the mascot on one frame.
+
+| Trigger | Reaction |
+| --- | --- |
+| Cursor still 10s while the agent is idle | falls asleep (`sleepy`, slower bob) until the cursor moves, then `surprised` |
+| Cursor parked on the mascot for 2s | `bashful`, once per stare |
+| Agent working | glances at the transcript every few seconds instead of only tracking the cursor |
+| Poke | `blink` into `heart`/`sparkle`/`delighted`; four rapid pokes make it `dizzy` |
+| Picking a mascot | `wink` |
+| Dragging | `surprised` while held, `bashful` when set down, `dizzy` when thrown (>= 1.2 px/ms) |
+| Workspace status change | `surprised` on attention, `delighted` on done, `sleepy` on failure |
+
+All of it runs through one reaction slot in `KoboyoMascot`, where the newest flash wins,
+so reactions replace each other instead of fighting over the same sprite layer. Only the
+nap waits for the agent to be idle; a stare or a poke lands even mid-run.
+
 ## Dragging
 
 Drag the mascot anywhere in the window. The drop point is saved in
@@ -82,6 +102,26 @@ Three host details the perch has to deal with:
 - A pinned mascot is re-parented to the app's root container (still inside the React
   root, so the host's click handling and the popover anchor keep working), because the
   composer's stacking context would otherwise paint over it.
+
+## Reactions
+
+The two sprite sheets give nine gaze frames and nine reaction frames. Gaze follows the
+cursor; everything else is a short flash that hands the sprite back to the gaze, because
+a reaction held forever just freezes the mascot on one frame.
+
+| Trigger | Reaction |
+| --- | --- |
+| Cursor still 10s while the agent is idle | falls asleep (`sleepy`, slower bob) until the cursor moves, then `surprised` |
+| Cursor parked on the mascot for 2s | `bashful`, once per stare |
+| Agent working | glances at the transcript every few seconds instead of only tracking the cursor |
+| Poke | `blink` into `heart`/`sparkle`/`delighted`; four rapid pokes make it `dizzy` |
+| Picking a mascot | `wink` |
+| Dragging | `surprised` while held, `bashful` when set down, `dizzy` when thrown (>= 1.2 px/ms) |
+| Workspace status change | `surprised` on attention, `delighted` on done, `sleepy` on failure |
+
+All of it runs through one reaction slot in `KoboyoMascot`, where the newest flash wins,
+so reactions replace each other instead of fighting over the same sprite layer. Only the
+nap waits for the agent to be idle; a stare or a poke lands even mid-run.
 
 ## Dragging
 

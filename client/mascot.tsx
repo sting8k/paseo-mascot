@@ -5,9 +5,10 @@ import type {
 import { useSettings, useWorkspace } from "@getpaseo/plugin/client";
 import { mascotSettings } from "../shared/mascot-settings";
 import { KoboyoMascot, MascotThumb, MASCOT_GROUPS, mascotLabel, DEFAULT_MASCOT } from "./koboyo";
+import type { MascotGesture } from "./koboyo";
 import { PILL_TITLE } from "../shared/mascot-settings";
 import { Animated, Easing, Pressable, ScrollView, Text, View } from "react-native";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { perchOnHostButton, suppressHostTooltip } from "./web";
 import { applyFixedPosition, clampToViewport, makeDraggable } from "./drag";
 
@@ -119,29 +120,41 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
   }, [position, face]);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  useEffect(
-    () =>
-      makeDraggable(slotRef.current, anchorRef.current, (dropped) => {
+  const [gesture, setGesture] = useState<MascotGesture | null>(null);
+  useEffect(() => {
+    let clear: ReturnType<typeof setTimeout> | undefined;
+    const stop = makeDraggable(slotRef.current, anchorRef.current, {
+      onStart: () => setGesture("dragging"),
+      onDrop: (dropped, flung) => {
+        setGesture(flung ? "flung" : "dropped");
+        clear = setTimeout(() => setGesture(null), GESTURE_CLEAR_MS);
         const current = settingsRef.current;
         if (current.status !== "ready") return;
         void current.save({ ...current.values, position: dropped }, current.revision);
-      }),
-    [],
-  );
+      },
+    });
+    return () => {
+      if (clear) clearTimeout(clear);
+      stop();
+    };
+  }, []);
 
-  // Slow idle bob, so the overflow reads as a deliberate perch rather than clipping.
+  // Slow idle bob, so the overflow reads as a deliberate perch rather than clipping;
+  // a napping mascot breathes slower.
+  const [napping, setNapping] = useState(false);
   useEffect(() => {
+    const duration = napping ? NAP_BOB_MS : BOB_MS;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(bob, {
           toValue: 1,
-          duration: 1500,
+          duration,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: false,
         }),
         Animated.timing(bob, {
           toValue: 0,
-          duration: 1500,
+          duration,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: false,
         }),
@@ -149,7 +162,7 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
     );
     loop.start();
     return () => loop.stop();
-  }, [bob]);
+  }, [bob, napping]);
 
   const lift = face * PILL_LIFT;
   const float = bob.interpolate({ inputRange: [0, 1], outputRange: [0, -2.5] });
@@ -166,7 +179,7 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
       }}
     >
       <Animated.View style={{ transform: [{ translateY: Animated.add(float, -lift) }] }}>
-        <KoboyoMascot id={id} size={face} mood={mood} />
+        <KoboyoMascot id={id} size={face} mood={mood} gesture={gesture} onSleepChange={setNapping} />
       </Animated.View>
     </View>
   );
@@ -177,6 +190,10 @@ const PILL_FACE_SCALE = 6; // rendered face size (~84px)
 const PILL_LIFT = 0.12; // how far above the slot the mascot sits
 const PILL_SLOT_WIDTH = 0.78; // horizontal room the mascot reserves on the row
 const PILL_SLOT_HEIGHT = 0.45; // hit area height, kept under the composer row height
+const BOB_MS = 1500;
+const NAP_BOB_MS = 3200;
+/** How long a drop reaction owns the sprite before normal gaze resumes. */
+const GESTURE_CLEAR_MS = 1200;
 
 const MOOD_BY_STATUS: Record<string, MascotMood> = {
   running: "focus",

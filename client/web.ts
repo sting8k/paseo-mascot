@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 declare const document: { body: unknown };
 
 declare const window: {
+  innerHeight: number;
   addEventListener(
     type: "mousemove",
     listener: (event: { clientX: number; clientY: number }) => void,
@@ -47,6 +48,11 @@ export function trackCursor(onMove: (x: number, y: number) => void): CursorTrack
       if (handle) cancelAnimationFrame(handle);
     },
   };
+}
+
+/** Window height on web; 0 on native, where there is nothing to glance at. */
+export function viewportHeight(): number {
+  return Platform.OS === "web" ? window.innerHeight : 0;
 }
 
 /**
