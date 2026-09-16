@@ -264,9 +264,10 @@ const PILL_SLOT_WIDTH = 0.78; // horizontal room the mascot reserves on the row
 const PILL_SLOT_HEIGHT = 0.45; // hit area height, kept under the composer row height
 const NAME_TOP = 0.8; // the name tag hangs from the feet, riding the composer's top edge
 const NAME_SCALE = 0.12; // ~10px at the default face size
-// A rounded face for a pet's name tag; every entry is a stock font somewhere.
+// A rounded face for a pet's name tag: the Japanese rounded gothic that ships with
+// macOS first, then whatever rounded font the platform has.
 const NAME_FONT = Platform.select({
-  web: '"Arial Rounded MT Bold", "SF Pro Rounded", Nunito, "Varela Round", system-ui, sans-serif',
+  web: '"Hiragino Maru Gothic ProN", "Arial Rounded MT Bold", "SF Pro Rounded", Nunito, "Varela Round", system-ui, sans-serif',
   default: undefined,
 });
 const BOB_MS = 1500;
