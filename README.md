@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/owl.png" width="160" alt="owl mascot">
+</p>
+
 # paseo-mascot
 
 A pet for your [Paseo](https://paseo.sh) composer. Pick one of 58 characters from
