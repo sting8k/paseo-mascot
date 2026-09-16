@@ -41,20 +41,6 @@ interest after a moment), blinks, and now and then pulls a face for no reason.
 Workspace status shows too: `sparkle` when a run starts, `delighted` when it finishes
 (held until you come back), `surprised` when it needs you, `dizzy` when it fails.
 
-## How it works
-
-Two 3×3 sprite sheets per character, hotlinked from koboyo — nine gaze directions and
-nine reactions. Gaze picks a frame from the angle to the cursor (or the field being
-typed into); reactions share one slot with a pecking order so a poke is never cut
-short by a status flicker, and a blink never interrupts anything.
-
-The composer pill is the host's button; the plugin strips its chrome and lets the sprite
-overflow (`client/web.ts`), then moves the button itself when dragged so the picker
-opens next to the mascot wherever it stands (`client/drag.ts`). Everything the plugin
-touches on the host's DOM is restored on unmount.
-
-Settings (`settings.mascot`): `mascot`, `name`, `position`.
-
 ## Development
 
 ```bash
