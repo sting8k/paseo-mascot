@@ -2,10 +2,16 @@ import type {
   PluginButtonRegistration,
   PluginClientContext,
 } from "@getpaseo/plugin/client";
+import { Platform } from "react-native";
 import { MascotFaceIcon, MascotPickerContent } from "./client/mascot";
-import { PILL_TITLE, registerPill } from "./client/pill-registry";
+import { PILL_TITLE } from "./shared/mascot-settings";
 
 export default function contribute(client: PluginClientContext) {
+  // The mascot only works as a web/desktop trick: it perches on the host button by
+  // rewriting DOM styles and is dragged with pointer events. On native there is no
+  // DOM to perch on, so the pill would show as broken chrome — contribute nothing.
+  if (Platform.OS !== "web") return () => {};
+
   // Composer pills are per-agent registrations and the 0.8.0 client SDK has no
   // reactive agent directory, so register from a one-shot list and let the
   // Command Center item cover agents created later.
@@ -26,7 +32,6 @@ export default function contribute(client: PluginClientContext) {
       },
     });
     pills.set(agentId, registration);
-    registerPill(registration);
   }
 
   client.addCommandCenterItem({

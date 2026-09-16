@@ -1,6 +1,9 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
+/** Composer pill title; the host repeats it in a hover tooltip we hide on web. */
+export const PILL_TITLE = "Choose mascot";
+
 export const mascotSettings = defineSettings({
   id: "mascot",
   scope: "host",

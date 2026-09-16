@@ -46,6 +46,11 @@ button internals the worst case is the old clipped pill, not a broken composer.
 Geometry knobs live at the bottom of `client/mascot.tsx`:
 `PILL_FACE_SCALE`, `PILL_LIFT`, `PILL_SLOT_WIDTH`, `PILL_SLOT_HEIGHT`.
 
+The plugin is web/desktop only: `contribute()` returns immediately when
+`Platform.OS !== "web"`, because the mascot perches by rewriting DOM styles and is
+dragged with pointer events. On native there is no DOM to perch on, so the pill would
+render as broken chrome instead of a mascot.
+
 Three host details the perch has to work around:
 
 - The icon box is rendered with `pointerEvents="none"`, which react-native-web writes

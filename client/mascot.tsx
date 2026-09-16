@@ -5,7 +5,7 @@ import type {
 import { useSettings, useWorkspace } from "@getpaseo/plugin/client";
 import { mascotSettings } from "../shared/mascot-settings";
 import { KoboyoMascot, MascotThumb, MASCOT_GROUPS, mascotLabel, DEFAULT_MASCOT } from "./koboyo";
-import { PILL_TITLE, updatePillLabels } from "./pill-registry";
+import { PILL_TITLE } from "../shared/mascot-settings";
 import { Animated, Easing, Pressable, ScrollView, Text, View } from "react-native";
 import { useEffect, useRef } from "react";
 import { perchOnHostButton, suppressHostTooltip } from "./web";
@@ -88,11 +88,6 @@ export function MascotFaceIcon(props: PluginButtonIconProps) {
   const slotRef = useRef<View>(null);
   const face = size * PILL_FACE_SCALE;
   const bob = useRef(new Animated.Value(0)).current;
-
-  // Keep every pill's label in sync with the selection.
-  useEffect(() => {
-    updatePillLabels(mascotLabel(id));
-  }, [id]);
 
   // Drop the host's pill chrome (background, border, label) and its 16px icon clip,
   // leaving the mascot alone on the composer row. The host button is what the picker
