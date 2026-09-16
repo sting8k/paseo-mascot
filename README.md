@@ -65,9 +65,17 @@ Three host details the perch has to work around:
 
 ## Reactions
 
-The two sprite sheets give nine gaze frames and nine reaction frames. Gaze follows the
-cursor; everything else is a short flash that hands the sprite back to the gaze, because
-a reaction held forever just freezes the mascot on one frame.
+The two sprite sheets give nine gaze frames and nine reaction frames. Gaze has a
+priority order — the user's own activity always beats ambient behaviour:
+
+1. **Typing** — looks at the field being typed into (the nearest point of its box, so a
+   wide composer seen from directly above is still "down there"). Ends 1.5s after the
+   last keystroke.
+2. **Glancing** — while the agent works, looks at the transcript every few seconds.
+3. **Cursor** — otherwise follows the mouse.
+
+Everything else is a short flash that hands the sprite back to the gaze, because a
+reaction held forever just freezes the mascot on one frame.
 
 | Trigger | Reaction |
 | --- | --- |
@@ -91,6 +99,13 @@ the host button itself, so the picker opens next to the mascot wherever it stand
 press under 4px still counts as a click and opens the picker; a real drag swallows the
 click it would otherwise produce.
 
+Drop it within 48px of its perch and it climbs back on (`position` goes back to
+`null`). The perch is the host's plugin-pill row, a separate layer just above the chat
+box — not the model/thinking button row inside it. Its emptied slot is `display:
+contents` inside a collapsed wrapper, so the only honest way to know where the perch is
+at drop time is to seat the button back for one synchronous measurement and lift it
+again; no frame ever shows the round trip.
+
 Three host details the perch has to deal with:
 
 - The icon box is rendered with `pointerEvents="none"`, which react-native-web
@@ -105,9 +120,17 @@ Three host details the perch has to deal with:
 
 ## Reactions
 
-The two sprite sheets give nine gaze frames and nine reaction frames. Gaze follows the
-cursor; everything else is a short flash that hands the sprite back to the gaze, because
-a reaction held forever just freezes the mascot on one frame.
+The two sprite sheets give nine gaze frames and nine reaction frames. Gaze has a
+priority order — the user's own activity always beats ambient behaviour:
+
+1. **Typing** — looks at the field being typed into (the nearest point of its box, so a
+   wide composer seen from directly above is still "down there"). Ends 1.5s after the
+   last keystroke.
+2. **Glancing** — while the agent works, looks at the transcript every few seconds.
+3. **Cursor** — otherwise follows the mouse.
+
+Everything else is a short flash that hands the sprite back to the gaze, because a
+reaction held forever just freezes the mascot on one frame.
 
 | Trigger | Reaction |
 | --- | --- |

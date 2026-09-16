@@ -1,7 +1,18 @@
 import { Platform } from "react-native";
 
 // This plugin typechecks without the DOM library. Declare only the globals this module uses.
-declare const document: { body: unknown };
+interface FocusTarget {
+  tagName: string;
+  isContentEditable?: boolean;
+  getBoundingClientRect(): { x: number; y: number; width: number; height: number };
+}
+
+declare const document: {
+  body: unknown;
+  activeElement: FocusTarget | null;
+  addEventListener(type: string, listener: () => void, options?: unknown): void;
+  removeEventListener(type: string, listener: () => void, options?: unknown): void;
+};
 
 declare const window: {
   innerHeight: number;
@@ -46,6 +57,46 @@ export function trackCursor(onMove: (x: number, y: number) => void): CursorTrack
     dispose() {
       window.removeEventListener("mousemove", listener);
       if (handle) cancelAnimationFrame(handle);
+    },
+  };
+}
+
+/** A typing burst is considered over after this much silence. */
+const TYPING_IDLE_MS = 1500;
+const TEXT_TAGS = ["TEXTAREA", "INPUT"];
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Report the field being typed into, so the mascot can watch the text instead of the
+ * mouse — the cursor sits wherever it was parked and says nothing about where the
+ * user's attention is. Reports the whole box, not its centre, because a wide composer
+ * seen from directly below is still "down there", not "over to the right". Reports
+ * null once typing stops.
+ */
+export function trackTyping(onTarget: (field: Rect | null) => void): CursorTracker {
+  if (Platform.OS !== "web") return { dispose: () => {} };
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const listener = () => {
+    const el = document.activeElement;
+    if (!el || (!TEXT_TAGS.includes(el.tagName) && !el.isContentEditable)) return;
+    const rect = el.getBoundingClientRect();
+    onTarget({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => onTarget(null), TYPING_IDLE_MS);
+  };
+  document.addEventListener("keydown", listener, true);
+  document.addEventListener("input", listener, true);
+  return {
+    dispose() {
+      document.removeEventListener("keydown", listener, true);
+      document.removeEventListener("input", listener, true);
+      if (idleTimer) clearTimeout(idleTimer);
     },
   };
 }

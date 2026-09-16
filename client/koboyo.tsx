@@ -1,6 +1,7 @@
 import { Animated, Image, Pressable, View } from "react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { measureCenterInto, trackCursor, viewportHeight } from "./web";
+import { measureCenterInto, trackCursor, trackTyping, viewportHeight } from "./web";
+import type { Rect } from "./web";
 import type { MascotMood } from "./mascot";
 
 // koboyo.com/page-mascot characters: two 3x3 webp sprite sheets per character.
@@ -51,6 +52,8 @@ type Reaction = (typeof REACTIONS)[number];
 
 const POKE_BONUS: readonly Reaction[] = ["heart", "sparkle", "delighted"];
 const DEADZONE_PX = 70;
+/** A field this close is being sat on, not looked at; anything further gets a real glance. */
+const TYPING_DEADZONE_PX = 12;
 const RAPID_WINDOW_MS = 1600;
 const DIZZY_THRESHOLD = 4;
 const BLINK_TO_REACTION_MS = 120;
@@ -158,6 +161,22 @@ const MOOD_REACTION: Partial<Record<MascotMood, Reaction>> = {
   sad: "sleepy",
 };
 
+/** The point of `rect` closest to `from` — what to look at when facing a wide box. */
+function nearestPoint(rect: Rect, from: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(from.x, rect.x), rect.x + rect.width),
+    y: Math.min(Math.max(from.y, rect.y), rect.y + rect.height),
+  };
+}
+
+/** Which of the nine gaze frames points from `center` at (x, y). */
+function directionTo(center: { x: number; y: number }, x: number, y: number, deadzone = DEADZONE_PX): Direction {
+  const dx = x - center.x;
+  const dy = y - center.y;
+  if (Math.hypot(dx, dy) < deadzone) return "center";
+  return RING[(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8];
+}
+
 function Sprite({ id, kind, frame, size }: { id: string; kind: "directions" | "reactions"; frame: number; size: number }) {
   const col = frame % 3;
   const row = Math.floor(frame / 3);
@@ -204,6 +223,7 @@ export function KoboyoMascot({
   const [reactionFlash, setReactionFlash] = useState<Reaction | null>(null);
   const [asleep, setAsleep] = useState(false);
   const [glancing, setGlancing] = useState(false);
+  const [typingAt, setTypingAt] = useState<Direction | null>(null);
   const lastMood = useRef<MascotMood>(mood);
   const squash = useRef(new Animated.Value(0)).current;
   const rootRef = useRef<View>(null);
@@ -237,17 +257,28 @@ export function KoboyoMascot({
       measureCenterInto(rootRef.current, centerRef.current);
       const center = centerRef.current;
       if (!center.x && !center.y) return;
-      const dx = x - center.x;
-      const dy = y - center.y;
-      const near = Math.hypot(dx, dy) < DEADZONE_PX;
-      idle.current.hovered = near;
+      const next = directionTo(center, x, y);
+      idle.current.hovered = next === "center";
       wake(true);
-      if (near) {
-        setDirection("center");
+      setDirection(next);
+    });
+    return () => tracker.dispose();
+  }, [wake]);
+
+  // Typing is where the user's attention actually is; the mouse just sits wherever it
+  // was left. Watch the caret's field instead, and treat typing as being present.
+  useEffect(() => {
+    const tracker = trackTyping((field) => {
+      if (!field) {
+        setTypingAt(null);
         return;
       }
-      const ringIndex = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8;
-      setDirection(RING[ringIndex]);
+      measureCenterInto(rootRef.current, centerRef.current);
+      const center = centerRef.current;
+      if (!center.x && !center.y) return;
+      const look = nearestPoint(field, center);
+      wake(true);
+      setTypingAt(directionTo(center, look.x, look.y, TYPING_DEADZONE_PX));
     });
     return () => tracker.dispose();
   }, [wake]);
@@ -359,8 +390,11 @@ export function KoboyoMascot({
   // beats being asleep.
   const reaction: Reaction | null =
     gesture === "dragging" ? "surprised" : (reactionFlash ?? (asleep ? "sleepy" : null));
+  // Watching the user type beats an ambient glance at the transcript, which in turn
+  // beats following a mouse nobody is holding.
   const glance: Direction = centerRef.current.y > viewportHeight() / 2 ? "up" : "down";
-  const directionFrame = DIRECTIONS.indexOf(glancing ? glance : direction);
+  const gaze = typingAt ?? (glancing ? glance : direction);
+  const directionFrame = DIRECTIONS.indexOf(gaze);
   const reactionFrame = REACTIONS.indexOf(reaction ?? "blink");
   const squashScaleX = squash.interpolate({ inputRange: [0, 1, 2, 3], outputRange: [1, 1.1, 0.95, 1.03] });
   const squashScaleY = squash.interpolate({ inputRange: [0, 1, 2, 3], outputRange: [1, 0.86, 1.08, 0.97] });

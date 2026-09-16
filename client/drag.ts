@@ -39,12 +39,14 @@ declare const window: {
 const DRAG_THRESHOLD_PX = 4;
 /** px/ms at release that counts as a throw rather than a placement. */
 const FLING_SPEED = 1.2;
+/** Dropped this close to the composer row, the mascot climbs back onto its perch. */
+const SNAP_HOME_PX = 48;
 
 export interface DragHandlers {
   /** The press turned into a real drag. */
   onStart?(): void;
-  /** Resting place, plus whether it got there by being thrown. */
-  onDrop(position: Point, flung: boolean): void;
+  /** Resting place — `null` means back on the composer perch — plus whether it was thrown. */
+  onDrop(position: Point | null, flung: boolean): void;
 }
 
 /** Keep a dragged mascot fully inside the viewport, even after a window resize. */
@@ -72,6 +74,33 @@ function liftToRoot(el: DragNode): void {
   if (root === el) return;
   lifted.set(el, { parent: el.parentElement, before: el.nextSibling });
   root.appendChild(el);
+}
+
+/**
+ * Once pinned, a mascot could never find its way back to the composer: `position` only
+ * ever changed to another free spot. A drop close to where the perch *would be* reads as
+ * "put it back". The emptied slot and its wrappers collapse to 0px and drift as the
+ * composer relayouts, so the only honest measurement is to seat the node back in its
+ * slot, read the rect, and lift it again — all synchronously, so no frame shows it.
+ */
+function droppedHome(el: DragNode, rect: { left: number; top: number; width: number; height: number }): boolean {
+  const home = lifted.get(el);
+  if (!home) return false;
+  const fixed = { position: el.style.position, left: el.style.left, top: el.style.top };
+  home.parent.insertBefore(el, home.before);
+  el.style.position = "";
+  el.style.left = "";
+  el.style.top = "";
+  const perch = el.getBoundingClientRect();
+  el.style.position = fixed.position;
+  el.style.left = fixed.left;
+  el.style.top = fixed.top;
+  let root: DragNode = el;
+  while (root.parentElement && root.parentElement !== document.body) root = root.parentElement;
+  root.appendChild(el);
+  const dx = rect.left + rect.width / 2 - (perch.left + perch.width / 2);
+  const dy = rect.top + rect.height / 2 - (perch.top + perch.height / 2);
+  return Math.hypot(dx, dy) <= SNAP_HOME_PX;
 }
 
 function dropFromRoot(el: DragNode): void {
@@ -168,7 +197,7 @@ export function makeDraggable(handle: unknown, moved: unknown, handlers: DragHan
     // Cancel the click this drag would produce, then report the resting place.
     el.addEventListener("click", swallowClick, { capture: true, once: true });
     const rect = target.getBoundingClientRect();
-    handlers.onDrop({ x: rect.left, y: rect.top }, speed >= FLING_SPEED);
+    handlers.onDrop(droppedHome(target, rect) ? null : { x: rect.left, y: rect.top }, speed >= FLING_SPEED);
     speed = 0;
   };
 
