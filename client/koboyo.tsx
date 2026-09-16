@@ -71,6 +71,16 @@ const DROP_MS = 900;
 const MOOD_FLASH_MS = 1400;
 const GLANCE_EVERY_MS = 4500;
 const GLANCE_MS = 1100;
+const BLINK_MS = 160;
+const BLINK_EVERY_MS = 3600;
+
+// Reactions share one sprite layer, so they need a pecking order: something done to
+// the mascot (poke, stare, drop, hello) must not be cut short by a workspace mood
+// flicker, and neither should be cut by an idle blink.
+const AMBIENT = 0;
+const MOOD = 1;
+const DIRECT = 2;
+type Showing = { priority: number; timer: ReturnType<typeof setTimeout> };
 
 // Their catalogue, in site order.
 export const MASCOT_GROUPS: readonly { title: string; ids: readonly string[] }[] = [
@@ -218,9 +228,11 @@ export function KoboyoMascot({
 }) {
   const [direction, setDirection] = useState<Direction>("center");
   // Every one-shot reaction (poke, mood change, wink, stare, wake, drop) runs through
-  // this single slot: the newest one wins, so reactions replace each other instead of
-  // fighting over the same sprite layer.
+  // this single slot; `show` decides by priority whether a newcomer may take it over.
   const [reactionFlash, setReactionFlash] = useState<Reaction | null>(null);
+  const showing = useRef<Showing | null>(null);
+  const glanceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pokeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [asleep, setAsleep] = useState(false);
   const [glancing, setGlancing] = useState(false);
   const [typingAt, setTypingAt] = useState<Direction | null>(null);
@@ -228,28 +240,37 @@ export function KoboyoMascot({
   const squash = useRef(new Animated.Value(0)).current;
   const rootRef = useRef<View>(null);
   const centerRef = useRef({ x: 0, y: 0 });
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const pokes = useRef({ count: 0, at: 0 });
   // Read by the cursor tracker and the idle ticker, which are both set up once.
   const idle = useRef({ since: Date.now(), hovered: false, stared: false, asleep: false });
 
-  const flash = useCallback((reaction: Reaction, ms: number) => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
+  /** Show `reaction` for `ms` unless something more important is still on screen. Returns the slot it took, if any. */
+  const show = useCallback((reaction: Reaction, ms: number, priority: number): Showing | null => {
+    const current = showing.current;
+    if (current && current.priority > priority) return null;
+    if (current) clearTimeout(current.timer);
+    const slot: Showing = {
+      priority,
+      timer: setTimeout(() => {
+        if (showing.current !== slot) return;
+        showing.current = null;
+        setReactionFlash(null);
+      }, ms),
+    };
+    showing.current = slot;
     setReactionFlash(reaction);
-    timers.current.push(setTimeout(() => setReactionFlash(null), ms));
+    return slot;
   }, []);
 
   const wake = useCallback(
     (surprised: boolean) => {
       idle.current.since = Date.now();
-      idle.current.stared = false;
       if (!idle.current.asleep) return;
       idle.current.asleep = false;
       setAsleep(false);
-      if (surprised) flash("surprised", WAKE_MS);
+      if (surprised) show("surprised", WAKE_MS, DIRECT);
     },
-    [flash],
+    [show],
   );
 
   useEffect(() => {
@@ -259,6 +280,8 @@ export function KoboyoMascot({
       if (!center.x && !center.y) return;
       const next = directionTo(center, x, y);
       idle.current.hovered = next === "center";
+      // A hand that merely trembles over the mascot is still one stare, not a new one.
+      if (!idle.current.hovered) idle.current.stared = false;
       wake(true);
       setDirection(next);
     });
@@ -283,7 +306,14 @@ export function KoboyoMascot({
     return () => tracker.dispose();
   }, [wake]);
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  useEffect(
+    () => () => {
+      if (showing.current) clearTimeout(showing.current.timer);
+      if (glanceTimer.current) clearTimeout(glanceTimer.current);
+      if (pokeTimer.current) clearTimeout(pokeTimer.current);
+    },
+    [],
+  );
 
   // Naps and stares share one ticker: both are just "the cursor stopped moving".
   // Only the nap waits for the agent to be idle too — being stared at is a direct
@@ -300,11 +330,11 @@ export function KoboyoMascot({
       }
       if (idle.current.hovered && !idle.current.stared && still >= STARE_AFTER_MS) {
         idle.current.stared = true;
-        flash("bashful", BASHFUL_MS);
+        show("bashful", BASHFUL_MS, DIRECT);
       }
     }, IDLE_TICK_MS);
     return () => clearInterval(interval);
-  }, [mood, gesture, flash]);
+  }, [mood, gesture, show]);
 
   useEffect(() => onSleepChange?.(asleep), [asleep, onSleepChange]);
 
@@ -315,8 +345,8 @@ export function KoboyoMascot({
     lastMood.current = mood;
     wake(false);
     const reaction = MOOD_REACTION[mood];
-    if (reaction) flash(reaction, MOOD_FLASH_MS);
-  }, [mood, flash, wake]);
+    if (reaction) show(reaction, MOOD_FLASH_MS, MOOD);
+  }, [mood, show, wake]);
 
   // While the agent works, glance at the transcript now and then instead of staring
   // at the cursor the whole time.
@@ -324,9 +354,14 @@ export function KoboyoMascot({
     if (mood !== "focus") return;
     const interval = setInterval(() => {
       setGlancing(true);
-      timers.current.push(setTimeout(() => setGlancing(false), GLANCE_MS));
+      if (glanceTimer.current) clearTimeout(glanceTimer.current);
+      glanceTimer.current = setTimeout(() => setGlancing(false), GLANCE_MS);
     }, GLANCE_EVERY_MS);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (glanceTimer.current) clearTimeout(glanceTimer.current);
+      setGlancing(false);
+    };
   }, [mood]);
 
   // Picking a mascot in the popover is the only way `id` changes: say hello.
@@ -334,48 +369,42 @@ export function KoboyoMascot({
   useEffect(() => {
     if (id === known.current) return;
     known.current = id;
-    flash("wink", WINK_MS);
-  }, [id, flash]);
+    show("wink", WINK_MS, DIRECT);
+  }, [id, show]);
 
   // Being thrown is dizzying; being set down is a little embarrassing.
   useEffect(() => {
-    if (gesture === "flung") flash("dizzy", DIZZY_CLEAR_MS);
-    else if (gesture === "dropped") flash("bashful", DROP_MS);
+    if (gesture === "flung") show("dizzy", DIZZY_CLEAR_MS, DIRECT);
+    else if (gesture === "dropped") show("bashful", DROP_MS, DIRECT);
     if (gesture) wake(false);
-  }, [gesture, flash, wake]);
+  }, [gesture, show, wake]);
 
   // Idle blinking so they feel alive even when the cursor is away — but not mid-nap,
-  // where an open-eyed blink would break the illusion.
+  // where an open-eyed blink would break the illusion. Lowest priority: it yields to
+  // everything else, and everything else is allowed to cut it short.
   useEffect(() => {
     if (asleep) return;
-    const interval = setInterval(() => {
-      setReactionFlash((current) => {
-        if (current) return current;
-        timers.current.push(setTimeout(() => setReactionFlash(null), 160));
-        return "blink";
-      });
-    }, 3600);
+    const interval = setInterval(() => show("blink", BLINK_MS, AMBIENT), BLINK_EVERY_MS);
     return () => clearInterval(interval);
-  }, [asleep]);
+  }, [asleep, show]);
 
   const poke = useCallback(() => {
     wake(false);
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
+    if (pokeTimer.current) clearTimeout(pokeTimer.current);
     const now = Date.now();
     const state = pokes.current;
     state.count = now - state.at < RAPID_WINDOW_MS ? state.count + 1 : 1;
     state.at = now;
     if (state.count >= DIZZY_THRESHOLD) {
       state.count = 0;
-      setReactionFlash("dizzy");
-      timers.current.push(setTimeout(() => setReactionFlash(null), DIZZY_CLEAR_MS));
+      show("dizzy", DIZZY_CLEAR_MS, DIRECT);
     } else {
-      setReactionFlash("blink");
-      timers.current.push(
-        setTimeout(() => setReactionFlash(POKE_BONUS[(state.count - 1) % POKE_BONUS.length]), BLINK_TO_REACTION_MS),
-      );
-      timers.current.push(setTimeout(() => setReactionFlash(null), REACTION_CLEAR_MS));
+      // A quick blink, then the real reaction — as long as nothing took the slot meanwhile.
+      const slot = show("blink", REACTION_CLEAR_MS, DIRECT);
+      const bonus = POKE_BONUS[(state.count - 1) % POKE_BONUS.length];
+      pokeTimer.current = setTimeout(() => {
+        if (showing.current === slot) setReactionFlash(bonus);
+      }, BLINK_TO_REACTION_MS);
     }
     // squash-and-stretch, 420ms, matching their keyframes
     Animated.sequence([
@@ -384,7 +413,7 @@ export function KoboyoMascot({
       Animated.timing(squash, { toValue: 3, duration: 113, useNativeDriver: false }),
       Animated.timing(squash, { toValue: 0, duration: 118, useNativeDriver: false }),
     ]).start();
-  }, [squash, wake]);
+  }, [squash, wake, show]);
 
   // Priority: what is happening to the mascot right now beats what it feels, which
   // beats being asleep.
